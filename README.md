@@ -1,171 +1,195 @@
 # OGGY
 
-A personal AI assistant with a strict boundary between "what the LLM
-decides" and "what actually touches your computer." Built from scratch
-in Python/Flask + HTML/CSS/vanilla JS — no React, no Node, no build step.
-
-## A. Architecture
-
-```
- User (text / voice)
-        |
-        v
-   Flask API  (api/routes.py)
-        |
-        v
- OGGY Orchestrator (core/orchestrator.py)
-        |
-        +--> LLM abstraction (core/llm.py)  -- decides WHAT should happen
-        |
-        +--> Permission layer (security/permissions.py) -- decides
-        |    whether that's allowed to happen automatically, needs your
-        |    confirmation, or is blocked outright
-        |
-        +--> Tool registry (tools/registry.py) -- deterministic
-        |    handlers that decide HOW it happens (filesystem.py,
-        |    commands.py, applications.py)
-        |
-        +--> Memory (memory/memory.py) -- SQLite: permanent facts,
-        |    session state, tool-use history
-        |
-        +--> Audit log (oggy_logging/logger.py) -- every tool call,
-             with secrets redacted before they ever hit disk
-        |
-        v
-   Frontend Orb (frontend/) -- polls /api/state, renders OGGY's
-   current state as a living reactor-core animation
+```text
+  @@@   @@@@  @@@@  @   @
+ @   @  @     @      @ @
+ @   @  @ @@  @ @@    @
+ @   @  @  @  @  @    @
+  @@@   @@@@  @@@@    @
 ```
 
-The LLM **never** executes a shell command or touches the filesystem
-directly. It can only request a named tool with typed arguments. The
-orchestrator hands that request to the permission layer, which is the
-only thing that decides if it runs automatically, waits for you to
-approve it, or gets refused.
+OGGY is a small personal AI assistant. You can type a request such as
+"make a folder" or "read this file", and OGGY can plan the next step.
+It is built with Python, Flask, HTML, CSS, and JavaScript. It does not
+need React, Node, or a frontend build step.
 
-## B. Directory structure
+The most important idea is simple:
 
+> The AI can suggest an action, but the safety code decides whether that
+> action is allowed to happen.
+
+## What happens when you send a message?
+
+1. You type a message in the browser.
+2. The browser sends it to Flask at `/api/chat`.
+3. The OGGY orchestrator gives the message and the available tools to an
+   AI provider.
+4. The AI either writes an answer or asks for a tool, such as
+   `read_file` or `create_folder`.
+5. OGGY checks the tool request before running it.
+6. Safe work runs automatically. Risky work waits for you to click
+   Approve or Deny.
+7. OGGY sends the result back to the AI and then shows the final answer.
+
+The AI never receives direct permission to run commands or change files.
+It can only ask for one of OGGY's registered tools.
+
+## Safety rules
+
+OGGY uses four safety levels:
+
+- **SAFE**: reading, searching, and creating normal files can run
+  automatically.
+- **MODERATE**: opening an application needs your approval first.
+- **DANGEROUS**: deleting, moving, renaming, or running a command needs
+  your approval first.
+- **BLOCKED**: the action is refused and cannot be approved.
+
+File paths are checked by `security/path_guard.py`. This blocks paths
+that try to escape the allowed folders, including `../../` paths and
+unsafe symbolic links. Commands are checked against the list in
+`OGGY_ALLOWED_COMMANDS` and run without a shell.
+
+API keys are kept in `.env`. Do not commit `.env` to GitHub. The example
+file `.env.example` contains names and empty values, not your secrets.
+Audit logs hide values that look like API keys, tokens, passwords, or
+authorization headers.
+
+## AI providers and fallback
+
+OGGY can use these providers:
+
+- Anthropic
+- Google Gemini
+- Groq
+- Qwen through the DashScope compatible API
+- Echo mode, which needs no internet or API key
+
+When Gemini, Groq, or Qwen are configured, OGGY tries them in the order
+written in `OGGY_PROVIDER_ORDER`. If one provider is unavailable, OGGY
+marks it as failed and tries the next provider. Providers with empty API
+keys are skipped.
+
+Example fallback settings:
+
+```env
+OGGY_LLM_PROVIDER=gemini
+OGGY_PROVIDER_ORDER=gemini,groq,qwen
+OGGY_PROVIDER_TIMEOUT_SECONDS=20
 ```
-OGGY/
-├── app.py                  Flask entrypoint
-├── config.py                All settings, read from env / .env
-├── core/
-│   ├── orchestrator.py      The agent loop
-│   ├── llm.py                LLM providers and ordered fallback chain
-│   ├── context.py            Conversation history
-│   └── state.py              IDLE/THINKING/... state machine
-├── tools/
-│   ├── registry.py           Tool definitions + validated execution
-│   ├── filesystem.py         list/read/search/create/delete/rename/move
-│   ├── commands.py           Allow-listed command execution
-│   └── applications.py       Allow-listed application launching
-├── security/
-│   ├── permissions.py        SAFE / MODERATE / DANGEROUS / BLOCKED
-│   ├── path_guard.py          Filesystem sandbox enforcement
-│   └── audit_log.py           Re-exports oggy_logging's logger
-├── memory/memory.py          SQLite: permanent + session + history
-├── voice/voice.py             STT/TTS interfaces (not wired up yet)
-├── oggy_logging/logger.py     Structured, secret-redacting audit log
-├── api/routes.py              /api/chat, /api/state, /api/permission/response
-├── frontend/                  index.html, style.css, orb.js, app.js
-└── tests/test_security.py     Path guard + permission manager tests
+
+Use Echo mode when you only want to test the website and tools without
+calling an AI service:
+
+```env
+OGGY_LLM_PROVIDER=echo
 ```
 
-(Named `oggy_logging`, not `logging`, so it never shadows Python's
-standard library logging module, which several files also use.)
+After changing `.env`, restart OGGY because settings are loaded when the
+Python process starts.
 
-## C. Data flow (one chat turn)
+## Procedures: install and start OGGY
 
-1. You type a message. `app.js` POSTs it to `/api/chat`.
-2. `orchestrator.handle_message()` adds it to conversation history and
-   asks the LLM what to do, passing the current tool schemas.
-3. If the LLM just replies with text, that's returned straight away.
-4. If it requests a tool call, the orchestrator asks
-   `permission_manager.evaluate()`:
-   - **SAFE** → runs immediately, result fed back to the LLM, loop
-     continues (bounded by `OGGY_MAX_AGENT_STEPS`).
-   - **MODERATE/DANGEROUS** → execution pauses; the frontend shows an
-     approve/deny prompt; nothing runs until you respond.
-   - **BLOCKED** → refused, no confirmation possible.
-5. Once there's a final text reply, it's returned and the orb goes
-   back to idle.
+### 1. Open the project folder
 
-## D. Security model
+```powershell
+cd C:\path\to\OGGY
+```
 
-- **Filesystem**: every path goes through `security/path_guard.py`,
-  which resolves it and verifies it's inside `OGGY_ALLOWED_DIRS`.
-  `../../` traversal and symlink escapes are both blocked (verified in
-  `tests/test_security.py`).
-- **Commands**: `tools/commands.py` only ever runs executables on
-  `OGGY_ALLOWED_COMMANDS`, as an argv list (never `shell=True`), with a
-  timeout and output size cap. Risk level is `DANGEROUS`, so it always
-  needs your confirmation regardless of what the LLM asked for.
-- **Applications**: same allow-list pattern, `MODERATE` risk.
-- **Permissions**: the LLM has no path to the permission rules
-  themselves — they live in `config.py` and `security/permissions.py`,
-  which the LLM never sees or can call into.
-- **Secrets**: `oggy_logging/logger.py` redacts anything with a key
-  matching `api_key|token|password|secret|authorization` before it's
-  written to the audit log. `.env` (not `.env.example`) is where real
-  credentials live and is never read by the LLM.
+### 2. Create a virtual environment
 
-## E. Orb state system
+A virtual environment keeps OGGY's Python packages separate from other
+projects on your computer.
 
-`core/state.py` holds one canonical state
-(`idle/listening/thinking/responding/executing_tool/waiting_for_permission/error`).
-The orchestrator updates it as it works; `frontend/app.js` polls
-`GET /api/state` every 800ms and calls `setOrbState()`
-(`frontend/orb.js`), which just sets a `data-state` attribute — all the
-actual animation (ring speed, color, glow) is CSS driven from
-`style.css`. Adding a new state is: one enum value + one CSS block.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+```
 
-## F. Setup
+On macOS or Linux, activate it with:
 
 ```bash
-cd OGGY
-python -m venv .venv && source .venv/bin/activate   # or your preferred env tool
+source .venv/bin/activate
+```
+
+### 3. Install the packages
+
+```powershell
 pip install -r requirements.txt
-cp .env.example .env
-# edit .env and set a provider key. For fallback, use:
-# OGGY_LLM_PROVIDER=gemini and OGGY_PROVIDER_ORDER=gemini,groq,qwen
-# Providers whose API keys are empty are skipped.
-# Use OGGY_LLM_PROVIDER=echo to run without a real LLM.
+```
+
+### 4. Create your settings file
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Open `.env` and add one real API key, or select Echo mode. Never paste
+your real keys into `README.md`, `.env.example`, or a public issue.
+
+### 5. Start the server
+
+```powershell
 python app.py
 ```
 
-Then open `http://127.0.0.1:5050`. Try:
+Open this address in your browser:
 
-> "Create a folder called experiments and a file called test.py inside it."
+`http://127.0.0.1:5050`
 
-`list_files` / `read_file` / `search_files` / `create_file` /
-`create_folder` run automatically (SAFE). `delete_file` / `rename_file`
-/ `move_file` / `run_command` / `open_application` will show an
-approve/deny prompt in the UI first.
+Try asking:
 
-Run the security tests:
-```bash
+> Create a folder called experiments and a file called test.py inside it.
+
+### 6. Run the tests
+
+Keep the virtual environment active and run:
+
+```powershell
 pytest tests/
 ```
 
-## Known V1 limitation
+The tests check the security rules and the provider fallback behavior.
 
-If the LLM requests several tool calls in a single turn and more than
-one of them needs confirmation, only the first pending one is
-surfaced — see the note in `core/orchestrator.py:resolve_confirmation`.
-In practice V1's tool set rarely triggers this; it's flagged as a V2
-fix (track *all* outstanding tool_use ids per turn, not just one).
+## Project map
 
-## Roadmap (from the original brief)
+These are the important folders and what they do:
 
-- **V1 (this drop)**: orchestrator, tool registry, permission layer,
-  filesystem controller, logging, LLM tool calling, the Orb.
-- **V2**: project memory & detection, `open_project`, diff-based code
-  editing, controlled test execution.
-- **V3**: richer application/terminal control, more workflows.
-- **V4**: wire up `voice/voice.py` to a real STT/TTS provider.
-- **V5**: browser control (Playwright), email drafting/sending.
-- **V6**: full git controller (`status`/`diff`/`add`/`commit`, with
-  `push`/`force_push`/`reset` always confirmation-gated).
-- **V7**: screen understanding (vision) — used to *identify* the real
-  file/error, then handed off to the filesystem/code tools rather than
-  becoming the primary editing mechanism.
-- **V8**: better planning, recovery, long-running workflow memory.
+```text
+app.py                    Starts the Flask web server.
+config.py                 Reads settings from .env.
+api/routes.py             Receives browser requests.
+core/orchestrator.py      Runs one complete AI task.
+core/llm.py               Talks to AI providers and handles fallback.
+core/context.py           Stores the conversation history.
+core/state.py             Stores states such as thinking and waiting.
+tools/                    Performs approved file, command, and app tasks.
+security/                 Checks paths and permission levels.
+memory/                   Stores facts and session information in SQLite.
+oggy_logging/             Writes redacted audit logs.
+frontend/                 Contains the browser page and animated Orb.
+voice/                    Future speech input and output code.
+tests/                    Automated safety and fallback tests.
+```
+
+The Orb shows what OGGY is doing. For example, it can show idle,
+listening, thinking, responding, executing a tool, waiting for your
+permission, or an error.
+
+## Current limitation
+
+If one message asks for several risky tool actions, the current V1
+interface shows the first approval request before the others. This is a
+known limitation planned for a future version.
+
+## Future plans
+
+- Better project detection and project memory.
+- Safer code editing and controlled test execution.
+- More terminal and application workflows.
+- Voice input and spoken answers.
+- Browser control and email drafting.
+- Git tools with confirmation for push, reset, and force-push actions.
+- Better planning and recovery for long tasks.
+
+Created by Mahzendx.
