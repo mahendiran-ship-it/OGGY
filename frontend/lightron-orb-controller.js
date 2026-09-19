@@ -1,5 +1,4 @@
 /**
- * Lightron Orb Controller adapted for OGGY.
  * Gesture Controller -> LightronOrb -> DOM.
  */
 const orbEl = document.getElementById("orb");

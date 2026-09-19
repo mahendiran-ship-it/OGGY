@@ -50,7 +50,7 @@ OGGY/
 ├── config.py                All settings, read from env / .env
 ├── core/
 │   ├── orchestrator.py      The agent loop
-│   ├── llm.py                LLM provider abstraction (Anthropic / echo)
+│   ├── llm.py                LLM providers and ordered fallback chain
 │   ├── context.py            Conversation history
 │   └── state.py              IDLE/THINKING/... state machine
 ├── tools/
@@ -125,8 +125,10 @@ cd OGGY
 python -m venv .venv && source .venv/bin/activate   # or your preferred env tool
 pip install -r requirements.txt
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY, or leave OGGY_LLM_PROVIDER=echo
-# to run the whole pipeline without a real LLM first
+# edit .env and set a provider key. For fallback, use:
+# OGGY_LLM_PROVIDER=gemini and OGGY_PROVIDER_ORDER=gemini,groq,qwen
+# Providers whose API keys are empty are skipped.
+# Use OGGY_LLM_PROVIDER=echo to run without a real LLM.
 python app.py
 ```
 

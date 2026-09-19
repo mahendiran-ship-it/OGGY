@@ -63,7 +63,7 @@ class Config:
     QWEN_MODEL = os.getenv("OGGY_QWEN_MODEL", "qwen-plus")
     PROVIDER_ORDER = [
         name.strip().lower()
-        for name in os.getenv("OGGY_PROVIDER_ORDER", "gemini,groq,qwen").split(",")
+        for name in os.getenv("OGGY_PROVIDER_ORDER", "").split(",")
         if name.strip()
     ]
 
@@ -71,6 +71,13 @@ class Config:
         os.getenv(
             "OGGY_MAX_TOKENS",
             "2048",
+        )
+    )
+
+    PROVIDER_TIMEOUT_SECONDS = int(
+        os.getenv(
+            "OGGY_PROVIDER_TIMEOUT_SECONDS",
+            "20",
         )
     )
 

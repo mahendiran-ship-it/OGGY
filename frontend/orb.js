@@ -1,6 +1,5 @@
 /**
- * OGGY state controller -> Lightron orb adapter.
- * The backend states remain OGGY's original states.
+ * OGGY state controller.
  */
 const STATE_LABELS = {
   idle: "IDLE",
@@ -21,6 +20,5 @@ function setOrbState(state, detail) {
   const text = STATE_LABELS[state] || String(state || "idle").toUpperCase();
   label.textContent = detail ? `${text} — ${detail}` : text;
 
-  // Feed OGGY's backend state into the Lightron visual controller.
   window.LightronOrb?.setState(state);
 }

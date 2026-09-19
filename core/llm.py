@@ -6,11 +6,11 @@ directly. Swapping providers (or adding a second one) means writing a
 new LLMProvider subclass here and pointing OGGY_LLM_PROVIDER at it -
 nothing in core/orchestrator.py or tools/ has to change.
 
-Two providers ship in V1:
-  - AnthropicProvider: real tool-calling via the Anthropic API.
-  - EchoProvider: no API key required, no network calls. Lets you run
-    the whole OGGY pipeline (orchestrator, permissions, tools, orb
-    states) end-to-end before you've wired up a real key.
+Supported providers:
+    - AnthropicProvider: Anthropic API.
+    - GeminiProvider: Google Gemini Interactions API.
+    - OpenAICompatibleProvider: Groq and Qwen compatible endpoints.
+    - EchoProvider: no-network test mode.
 """
 
 from abc import ABC, abstractmethod
@@ -270,7 +270,7 @@ class OpenAICompatibleProvider(LLMProvider):
             method="POST",
         )
         try:
-            with urllib_request.urlopen(request, timeout=60) as response:
+            with urllib_request.urlopen(request, timeout=config.PROVIDER_TIMEOUT_SECONDS) as response:
                 data = json.loads(response.read().decode("utf-8"))
         except urllib_error.HTTPError as exc:
             raise RuntimeError(f"{self.name} provider returned HTTP {exc.code}.") from exc
@@ -315,7 +315,8 @@ class FallbackProvider(LLMProvider):
                 return provider.send(messages, tools, system_prompt)
             except Exception as exc:
                 self._failed.add(name)
-                failures.append(name)
+                reason = str(exc).strip() or exc.__class__.__name__
+                failures.append(f"{name} ({reason})")
         raise RuntimeError("All configured OGGY providers failed: " + ", ".join(failures))
 
 
@@ -364,8 +365,24 @@ def get_llm_provider() -> LLMProvider:
                 "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
             ),
         }
+        credentials = {
+            "gemini": config.GEMINI_API_KEY,
+            "groq": config.GROQ_API_KEY,
+            "qwen": config.QWEN_API_KEY,
+        }
         ordered = config.PROVIDER_ORDER or [config.LLM_PROVIDER, "groq", "qwen"]
-        _provider_instance = FallbackProvider({name: factories[name] for name in ordered if name in factories})
+        names = list(dict.fromkeys(ordered))
+        configured = {
+            name: factories[name]
+            for name in names
+            if name in factories and credentials[name]
+        }
+        if not configured:
+            raise RuntimeError(
+                "No configured OGGY provider has an API key. Set one of "
+                "GEMINI_API_KEY, GROQ_API_KEY, or QWEN_API_KEY."
+            )
+        _provider_instance = FallbackProvider(configured)
     else:
         raise ValueError(f"Unknown OGGY_LLM_PROVIDER: {config.LLM_PROVIDER}. Use gemini, groq, qwen, anthropic, or echo.")
 
