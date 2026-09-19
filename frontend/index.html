@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OGGY — Lightron Interface</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="scene">
+    <div class="header-row">
+      <div class="status-label" id="statusLabel">IDLE</div>
+      <div class="clock-display" id="clockDisplay">--:--:--</div>
+    </div>
+
+    <div class="orb-wrap" id="orbWrap">
+      <div class="orb" id="orb">
+        <div class="orb-layer outer-field"></div>
+        <div class="orb-ring ring-1"></div>
+        <div class="orb-ring ring-2"></div>
+        <div class="orb-ring ring-3"></div>
+        <div class="orb-ring ring-4"></div>
+        <div class="orb-ring ring-5"></div>
+        <div class="orb-ring ring-6"></div>
+        <div class="orb-ring ring-7"></div>
+        <div class="orb-layer energy-field"></div>
+        <div class="orb-layer particle-field"></div>
+        <div class="orb-layer inner-structure"></div>
+        <div class="orb-layer orbit-shell"></div>
+        <div class="orb-core"></div>
+        <div class="orb-nucleus"></div>
+      </div>
+      <div class="credit">Built by Mahendiran</div>
+    </div>
+
+    <div class="panel">
+      <div class="log" id="log"></div>
+
+      <div class="confirm-box" id="confirmBox" hidden>
+        <div class="confirm-text" id="confirmText"></div>
+        <div class="confirm-actions">
+          <button id="confirmApprove" class="btn btn-approve">Approve</button>
+          <button id="confirmDeny" class="btn btn-deny">Deny</button>
+        </div>
+      </div>
+
+      <form class="input-row" id="chatForm">
+        <input type="text" id="chatInput"
+               placeholder="Tell OGGY what to do..."
+               autocomplete="off">
+        <button type="submit" class="btn btn-send">Send</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Hidden camera input: no preview is shown. -->
+  <video id="gesture-camera" playsinline muted
+    style="position:fixed;width:2px;height:2px;opacity:0;pointer-events:none;top:0;left:0;"></video>
+
+  <!-- OGGY state/API logic remains separate from the orb. -->
+  <script src="orb.js"></script>
+  <script src="app.js"></script>
+
+  <!-- Lightron orb + gesture layer. -->
+  <script src="lightron-orb-controller.js"></script>
+  <script src="gesture-controller.js"></script>
+</body>
+</html>

@@ -1,0 +1,5 @@
+flask>=3.0
+anthropic>=0.40
+google-genai>=2.3.0   # only needed if OGGY_LLM_PROVIDER=gemini - 2.3.0+ required for the Interactions API
+python-dotenv>=1.0
+pytest>=8.0
